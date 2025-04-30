@@ -1,5 +1,7 @@
 <?php
 session_start();
+// Set the default timezone
+date_default_timezone_set('Asia/Manila'); // Change this to your timezone
 include '../middleware.php';
 userOnly();
 include '../database/db_connection.php';
@@ -39,7 +41,6 @@ if ($teacherId) {
         $stmt->bind_param("is", $teacherId, $yesterday);
         $stmt->execute();
         $yesterdayResult = $stmt->get_result();
-        
         if ($yesterdayResult->num_rows > 0) {
             $yesterdayRecord = $yesterdayResult->fetch_assoc();
             if ($yesterdayRecord['check_in'] && !$yesterdayRecord['check_out']) {
@@ -60,7 +61,6 @@ if ($teacherId) {
         $stmt->bind_param("is", $teacherId, $today);
         $stmt->execute();
         $result = $stmt->get_result();
-        
         if ($result->num_rows > 0) {
             $record = $result->fetch_assoc();
             if ($record['check_in']) {
@@ -71,7 +71,15 @@ if ($teacherId) {
                 $stmt = $conn->prepare($query);
                 $stmt->bind_param("si", $now, $record['id']);
                 if ($stmt->execute()) {
-                    $successMessage = "Check-in successful at " . date('h:i A');
+                    // Get the exact time from database
+                    $getTimeQuery = "SELECT check_in FROM attendance WHERE id = ?";
+                    $timeStmt = $conn->prepare($getTimeQuery);
+                    $timeStmt->bind_param("i", $record['id']);
+                    $timeStmt->execute();
+                    $timeResult = $timeStmt->get_result();
+                    $dbTime = $timeResult->fetch_assoc()['check_in'];
+                    $timeStmt->close();
+                    $successMessage = "Check-in successful at " . date('h:i:s A', strtotime($dbTime));
                 } else {
                     $errorMessage = "Failed to record check-in.";
                 }
@@ -82,7 +90,17 @@ if ($teacherId) {
             $stmt = $conn->prepare($query);
             $stmt->bind_param("iss", $teacherId, $today, $now);
             if ($stmt->execute()) {
-                $successMessage = "Check-in successful at " . date('h:i A');
+                // Get the inserted ID
+                $newId = $conn->insert_id;
+                // Get the exact time from database
+                $getTimeQuery = "SELECT check_in FROM attendance WHERE id = ?";
+                $timeStmt = $conn->prepare($getTimeQuery);
+                $timeStmt->bind_param("i", $newId);
+                $timeStmt->execute();
+                $timeResult = $timeStmt->get_result();
+                $dbTime = $timeResult->fetch_assoc()['check_in'];
+                $timeStmt->close();
+                $successMessage = "Check-in successful at " . date('h:i:s A', strtotime($dbTime));
             } else {
                 $errorMessage = "Failed to record check-in.";
             }
@@ -101,7 +119,6 @@ if ($teacherId) {
         $stmt->bind_param("is", $teacherId, $today);
         $stmt->execute();
         $result = $stmt->get_result();
-        
         if ($result->num_rows > 0) {
             $record = $result->fetch_assoc();
             if (!$record['check_in']) {
@@ -114,7 +131,15 @@ if ($teacherId) {
                 $stmt = $conn->prepare($query);
                 $stmt->bind_param("si", $now, $record['id']);
                 if ($stmt->execute()) {
-                    $successMessage = "Check-out successful at " . date('h:i A');
+                    // Get the exact time from database
+                    $getTimeQuery = "SELECT check_out FROM attendance WHERE id = ?";
+                    $timeStmt = $conn->prepare($getTimeQuery);
+                    $timeStmt->bind_param("i", $record['id']);
+                    $timeStmt->execute();
+                    $timeResult = $timeStmt->get_result();
+                    $dbTime = $timeResult->fetch_assoc()['check_out'];
+                    $timeStmt->close();
+                    $successMessage = "Check-out successful at " . date('h:i:s A', strtotime($dbTime));
                     
                     // Calculate salary for this attendance if salary rates exist
                     $checkRateQuery = "SELECT id FROM salary_rates WHERE teacher_id = ?";
@@ -122,7 +147,6 @@ if ($teacherId) {
                     $rateStmt->bind_param("i", $teacherId);
                     $rateStmt->execute();
                     $rateResult = $rateStmt->get_result();
-                    
                     if ($rateResult->num_rows > 0) {
                         // Get the attendance record id
                         $attendanceQuery = "SELECT id FROM attendance WHERE teacher_id = ? AND date = ?";
@@ -130,7 +154,6 @@ if ($teacherId) {
                         $attendanceStmt->bind_param("is", $teacherId, $today);
                         $attendanceStmt->execute();
                         $attendanceResult = $attendanceStmt->get_result();
-                        
                         if ($attendanceResult->num_rows > 0) {
                             $attendanceId = $attendanceResult->fetch_assoc()['id'];
                             
@@ -150,11 +173,11 @@ if ($teacherId) {
         $stmt->close();
     }
     
-    // Get today's attendance status for the current teacher
+    // Get today's attendance status for the current teacher - Move this AFTER form processing
     $today = date('Y-m-d');
     $todayAttendance = null;
-    
-    $query = "SELECT check_in, check_out FROM attendance WHERE teacher_id = ? AND date = ?";
+    // Ensure we're getting the most up-to-date attendance data after check-in/check-out
+    $query = "SELECT id, date, check_in, check_out, status FROM attendance WHERE teacher_id = ? AND date = ?";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("is", $teacherId, $today);
     $stmt->execute();
@@ -177,7 +200,7 @@ if ($teacherId) {
     // Get attendance records with pagination
     $query = "SELECT date, check_in, check_out, status, notes 
               FROM attendance 
-              WHERE teacher_id = ? 
+              WHERE teacher_id = ?
               ORDER BY date DESC 
               LIMIT ? OFFSET ?";
     $stmt = $conn->prepare($query);
@@ -186,10 +209,8 @@ if ($teacherId) {
     $attendanceRecords = $stmt->get_result();
     $stmt->close();
 }
-
 $conn->close();
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -199,13 +220,10 @@ $conn->close();
     <meta name="author" content="School Administration">
     <meta name="theme-color" content="#4F46E5">
     <title>Attendance Tracking | School Management System</title>
-    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="../assets/images/favicon.ico">
-    
     <!-- Custom JavaScript -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -213,30 +231,24 @@ $conn->close();
             const sidebarElement = document.getElementById('sidebar');
             const openButton = document.getElementById('openSidebar');
             const closeButton = document.getElementById('closeSidebar');
-            
             // Toggle sidebar visibility
             function toggleSidebar() {
                 if (sidebarElement) {
                     sidebarElement.classList.toggle('-translate-x-full');
                 }
             }
-            
             // Setup event listeners
             if (openButton) openButton.addEventListener('click', toggleSidebar);
             if (closeButton) closeButton.addEventListener('click', toggleSidebar);
-            
-            // Update clock
+            // Update clock with seconds for better precision
             function updateClock() {
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString();
                 const dateStr = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                
                 document.getElementById('current-time').textContent = timeStr;
                 document.getElementById('current-date').textContent = dateStr;
-                
                 setTimeout(updateClock, 1000);
             }
-            
             updateClock();
         });
     </script>
@@ -247,7 +259,6 @@ $conn->close();
         <div class="lg:block">
             <?php include 'sidebar.php'; ?>
         </div>
-
         <!-- Main Content -->
         <div class="flex-1 lg:ml-64">
             <!-- Top Navigation -->
@@ -262,8 +273,6 @@ $conn->close();
                     <div><!-- Placeholder for alignment --></div>
                 </div>
             </header>
-
-            <!-- Page Content -->
             <main class="p-6">
                 <?php if (!$teacherId): ?>
                     <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
@@ -288,7 +297,6 @@ $conn->close();
                             <div class="text-lg text-gray-600" id="current-date"></div>
                         </div>
                     </div>
-                    
                     <?php if ($successMessage): ?>
                         <div class="bg-green-50 border-l-4 border-green-400 p-4 mb-6">
                             <div class="flex">
@@ -303,7 +311,6 @@ $conn->close();
                             </div>
                         </div>
                     <?php endif; ?>
-                    
                     <?php if ($errorMessage): ?>
                         <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
                             <div class="flex">
@@ -318,34 +325,32 @@ $conn->close();
                             </div>
                         </div>
                     <?php endif; ?>
-                    
                     <!-- Check-in and Check-out Buttons -->
                     <div class="bg-white rounded-lg shadow p-6 mb-6">
                         <h2 class="text-xl font-bold text-gray-800 mb-4">Today's Attendance</h2>
                         <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
-                            <form method="post" action="" class="flex-1">
+                            <form method="post" action="" id="check-in-form" class="flex-1">
                                 <button type="submit" name="check_in" 
                                     class="w-full bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-300 font-medium
                                     <?php echo isset($todayAttendance) && $todayAttendance['check_in'] ? 'opacity-50 cursor-not-allowed' : ''; ?>"
                                     <?php echo isset($todayAttendance) && $todayAttendance['check_in'] ? 'disabled' : ''; ?>>
                                     <?php 
                                     if (isset($todayAttendance) && $todayAttendance['check_in']) {
-                                        echo 'Checked In: ' . date('h:i A', strtotime($todayAttendance['check_in']));
+                                        echo 'Checked In: <span class="check-in-time">' . date('h:i:s A', strtotime($todayAttendance['check_in'])) . '</span>';
                                     } else {
                                         echo 'Check In';
                                     }
                                     ?>
                                 </button>
                             </form>
-                            
-                            <form method="post" action="" class="flex-1">
+                            <form method="post" action="" id="check-out-form" class="flex-1">
                                 <button type="submit" name="check_out" 
                                     class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-300 font-medium
                                     <?php echo !isset($todayAttendance) || !$todayAttendance['check_in'] || (isset($todayAttendance) && $todayAttendance['check_out']) ? 'opacity-50 cursor-not-allowed' : ''; ?>"
                                     <?php echo !isset($todayAttendance) || !$todayAttendance['check_in'] || (isset($todayAttendance) && $todayAttendance['check_out']) ? 'disabled' : ''; ?>>
                                     <?php 
                                     if (isset($todayAttendance) && $todayAttendance['check_out']) {
-                                        echo 'Checked Out: ' . date('h:i A', strtotime($todayAttendance['check_out']));
+                                        echo 'Checked Out: <span class="check-out-time">' . date('h:i:s A', strtotime($todayAttendance['check_out'])) . '</span>';
                                     } else {
                                         echo 'Check Out';
                                     }
@@ -354,7 +359,6 @@ $conn->close();
                             </form>
                         </div>
                     </div>
-                    
                     <!-- Attendance History Table -->
                     <div class="bg-white rounded-lg shadow">
                         <div class="px-6 py-4 border-b border-gray-200">
@@ -380,10 +384,24 @@ $conn->close();
                                                         <?php echo date('M d, Y', strtotime($record['date'])); ?>
                                                     </td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        <?php echo $record['check_in'] ? date('h:i A', strtotime($record['check_in'])) : '-'; ?>
+                                                        <?php 
+                                                        if ($record['check_in']) {
+                                                            $checkInTime = new DateTime($record['check_in']);
+                                                            echo $checkInTime->format('h:i A');
+                                                        } else {
+                                                            echo '-';
+                                                        }
+                                                        ?>
                                                     </td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        <?php echo $record['check_out'] ? date('h:i A', strtotime($record['check_out'])) : '-'; ?>
+                                                        <?php 
+                                                        if ($record['check_out']) {
+                                                            $checkOutTime = new DateTime($record['check_out']);
+                                                            echo $checkOutTime->format('h:i A');
+                                                        } else {
+                                                            echo '-';
+                                                        }
+                                                        ?>
                                                     </td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm">
                                                         <?php 
@@ -419,7 +437,6 @@ $conn->close();
                                         </tbody>
                                     </table>
                                 </div>
-                                
                                 <!-- Pagination -->
                                 <?php if ($totalPages > 1): ?>
                                     <div class="mt-6 flex justify-center">
@@ -440,12 +457,10 @@ $conn->close();
                                                     </svg>
                                                 </span>
                                             <?php endif; ?>
-                                            
                                             <!-- Page Numbers -->
                                             <?php 
                                             $startPage = max(1, $currentPage - 2);
                                             $endPage = min($totalPages, $currentPage + 2);
-                                            
                                             for ($i = $startPage; $i <= $endPage; $i++): 
                                             ?>
                                                 <?php if ($i == $currentPage): ?>
@@ -458,7 +473,6 @@ $conn->close();
                                                     </a>
                                                 <?php endif; ?>
                                             <?php endfor; ?>
-                                            
                                             <!-- Next Page Button -->
                                             <?php if ($currentPage < $totalPages): ?>
                                                 <a href="?page=<?php echo $currentPage + 1; ?>" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
